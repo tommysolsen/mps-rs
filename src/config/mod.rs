@@ -27,7 +27,7 @@ impl Configuration {
         }
     }
 
-    pub fn of<T: 'static + ConfigurationProvider>(&self) -> Option<T> {
+    pub fn of<T: 'static + ConfigurationProvider>(&self) -> Option<&T> {
         let t = TypeId::of::<T>();
 
         return match self.providers.contains_key(&t) {
@@ -56,6 +56,12 @@ pub struct BaseSettings {
     api_key: Option<String>,
     mpv_path: Option<String>,
     mpv_args: Option<String>
+}
+
+impl BaseSettings {
+    pub fn set_api_key(&mut self, str: String) {
+        self.api_key = Some(str);
+    }
 }
 
 impl ConfigurationProvider for BaseSettings {}
@@ -89,9 +95,10 @@ mod tests {
             mpv_args: None
         }).expect("Expected no error");
 
-        let mut config2 = repo.of::<BaseSettings>().unwrap().borrow_mut();
+        let mut config2 = repo.of::<BaseSettings>().unwrap();
 
         assert_eq!(repo.len(), 1, "Assumed that repo would be empty got size of {}", repo.len());
         assert_eq!(config2.api_key.as_ref().unwrap().cmp(&"kake".to_string()), Ordering::Equal);
+
     }
 }
