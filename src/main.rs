@@ -3,40 +3,37 @@ use std::io;
 mod shell;
 mod mpv;
 
-use std::{thread, time::Duration};
+
 use std::process::exit;
-use std::sync::mpsc;
-use crate::mpv::ReadCommandErrors;
+
+use crate::mpv::MpvResponse::UnknownResponse;
+use crate::shell::InitializerSettings;
 
 fn main() -> Result<(), io::Error> {
     println!("Hello, world!");
 
-    let (mut child, mut mpv) = shell::initialize()?;
-    mpv.loadFile("https://www.youtube.com/watch?v=lhmKby7c-Jg")?;
+    let settings = InitializerSettings::new(); //.set_existing_socket("/tmp/server");
 
-    let (tx, rx) = mpsc::channel::<bool>();
+    let mut mpv = shell::initialize(settings)?;
+    let _ = mpv.load_file("https://www.youtube.com/watch?v=lhmKby7c-Jg");
 
-    thread::spawn(move || {
-        let x = rx.recv();
-        if x.is_ok() {
-            child.kill().expect("Expected to be able to kill mpv");
-            child.wait().expect("Expected to be able to wait for it to die");
-            exit(0);
-        }
-    });
-
-    let tx_ctrlc = tx.clone();
+    // Handles CTRL+C, kills the mpv instance if it was spawned by the initiate method, leaves it
+    // if it was spawned manually
+    let killer = mpv.make_killer();
     ctrlc::set_handler(move || {
-        println!("received Ctrl+C!");
-        tx_ctrlc.send(true).expect("Expected to be able to send kill signal");
+        match &killer {
+            Some(killer) => killer.send(()).unwrap(),
+            _ => {},
+        }
+        exit(0);
     }).expect("Error setting Ctrl-C handler");
 
-    println!("Reading commands");
+    let mut stop = false;
     loop {
-        thread::sleep(Duration::from_secs(1));
-        let cmd = mpv.read_next_command().unwrap();
+        match mpv.events().recv().unwrap_or(UnknownResponse("UNPARSEABLE EVENT".to_string())) {
+            UnknownResponse(x) if x == "" => stop = true,
+            cmd => println!("{:?}", cmd),
+        }
 
     }
-    tx.send(true).expect("Expected to be able to send kill signal");
-    return Ok(());
 }

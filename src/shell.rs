@@ -8,31 +8,40 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{Value};
-use serde_json::Value::{Number as ValueNumber, String};
+use serde_json::Value::{Number as ValueNumber, String as ValueString};
 use crate::mpv::MpvClient;
 
-
-struct MpvResponse {
-    error: std::string::String,
-    data: Value,
+#[derive(Default)]
+pub struct InitializerSettings {
+    existing_socket: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-enum MpvResponseData {
-    Float(f32),
-    Int(i64),
-    String(std::string::String)
+impl InitializerSettings {
+    pub fn new() -> Self {
+        return Self::default();
+    }
+
+    pub fn set_existing_socket(mut self, socket_path: &str) -> Self {
+        self.existing_socket = Some(socket_path.to_string());
+        return self;
+    }
+
 }
 
-pub fn initialize() -> Result<(Child, MpvClient), io::Error> {
+pub fn initialize(settings: InitializerSettings) -> Result<MpvClient, io::Error> {
     let epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let path = format!("/tmp/mpv-{}", epoch);
-    let child = start_mpv(path.as_str())?;
-    sleep(Duration::from_secs(1));
-    let socket = UnixStream::connect(path)?;
 
-    let client = crate::mpv::MpvClient::new(socket)?;
-    return Ok((child, client));
+    return if settings.existing_socket.is_none() {
+        let path = format!("/tmp/mpv-{}", epoch);
+        let mpv = start_mpv(&path)?;
+        sleep(Duration::from_secs(1));
+        let socket = UnixStream::connect(path).unwrap();
+        MpvClient::new(socket, Some(mpv))
+    } else {
+        let path = settings.existing_socket.unwrap();
+        let socket = UnixStream::connect(path)?;
+        MpvClient::new(socket, None)
+    }
 }
 
 
@@ -52,17 +61,6 @@ pub fn initialize() -> Result<(Child, MpvClient), io::Error> {
 /// ```
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn start_mpv(path: &str) -> Result<Child, std::io::Error> {
-    // match fs::metadata(path) {
-    //     Ok(_) => Ok(()),
-    //     Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
-    //         match File::create(path).err() {
-    //             None => Ok(()),
-    //             Some(e) => Err(e),
-    //         }
-    //     },
-    //     Err(e) => Err(e),
-    // }?;
-
     let command = Command::new("mpv")
         .arg(format!("--input-ipc-server={}", path))
         .arg("--idle")
