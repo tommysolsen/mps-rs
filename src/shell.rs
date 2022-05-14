@@ -1,19 +1,20 @@
-
-use std::io::{BufRead, BufReader, Read, stdout, Write};
+use std::{fs, io};
+use std::fs::File;
+use std::process::{Child, Command, Stdio};
+use std::io::{BufRead, BufReader, BufWriter, Error, Write};
 use std::os::unix::net::{UnixStream};
+use std::thread::sleep;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::{Number, Value};
+use serde_json::{Value};
 use serde_json::Value::{Number as ValueNumber, String};
+use crate::mpv::MpvClient;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MpvCommand {
-    command: Vec<serde_json::Value>,
-}
 
 struct MpvResponse {
     error: std::string::String,
-    data: serde_json::Value,
+    data: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -23,45 +24,53 @@ enum MpvResponseData {
     String(std::string::String)
 }
 
-#[cfg(target_os = "macos")]
-pub fn start_mpv() {
+pub fn initialize() -> Result<(Child, MpvClient), io::Error> {
+    let epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let path = format!("/tmp/mpv-{}", epoch);
+    let child = start_mpv(path.as_str())?;
+    sleep(Duration::from_secs(1));
+    let socket = UnixStream::connect(path)?;
 
-    // File::create(Path::new("/tmp/mpvsocket")).expect("Unable to create socket file");
-    // let command = Command::new("mpv")
-    //     .args([
-    //         "--input-ipc-server=/tmp/mpvsocket",
-    //         "--for"
-    //     ]).output().expect("Unable to run mpv");
-    //
-    // let mut x = stdout();
-    // x.write(command.stderr.as_slice());
-    // x.flush();
+    let client = crate::mpv::MpvClient::new(socket)?;
+    return Ok((child, client));
+}
 
 
-    let mut sock = UnixStream::connect("/tmp/mpvsocket").expect("Unable to connect to mpv server via ");
+/// Returns a new mpv instance child with a open ipc server bound on a unix sock file.
+/// If the sock file does not exist it will be created
+///
+/// # Arguments
+///
+/// * `path`:
+///
+/// returns: Result<Child, Error>
+///
+/// # Examples
+///
+/// ```
+///
+/// ```
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn start_mpv(path: &str) -> Result<Child, std::io::Error> {
+    // match fs::metadata(path) {
+    //     Ok(_) => Ok(()),
+    //     Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+    //         match File::create(path).err() {
+    //             None => Ok(()),
+    //             Some(e) => Err(e),
+    //         }
+    //     },
+    //     Err(e) => Err(e),
+    // }?;
 
-    let cmd_i = serde_json::Number::from(1_u16);
+    let command = Command::new("mpv")
+        .arg(format!("--input-ipc-server={}", path))
+        .arg("--idle")
+        .arg("--force-window")
+        .arg("--really-quiet")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()?;
 
-    let mut x = serde_json::to_string(&MpvCommand { command: vec![
-        String("observe_property".to_string()),
-        ValueNumber(cmd_i),
-        String("time-pos".to_string())
-        ], }).expect("Expected paylod to be serializable");
-
-    writeln!(sock, "{}", x);
-
-
-    let mut reader = BufReader::new(sock);
-    loop {
-        let mut st: Vec<u8> = Vec::new();
-        let mut response: Vec<u8> = Vec::new();
-        reader.read_until(0x0a, &mut st).expect("Could not read from socket");
-        let x = std::string::String::from_utf8(st).unwrap();
-        println!("Got {}", x);
-    }
-
-
-
-
-
+    return Ok(command);
 }
