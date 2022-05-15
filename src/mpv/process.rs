@@ -7,11 +7,14 @@ use async_trait::async_trait;
 use tokio::net::UnixStream;
 use tokio::process::{Child, Command};
 
+
+#[allow(dead_code)]
 pub struct MpvInitializer {
     mpv_args: Option<Vec<String>>
 }
 
 impl MpvInitializer {
+    #[allow(dead_code)]
     fn with_args(mut self, args: Vec<String>) -> Self {
         self.mpv_args = Some(args);
         self
@@ -59,7 +62,7 @@ pub struct ManagedProcess {
 
 impl Drop for ManagedProcess {
     fn drop(&mut self) {
-        self.kill_program();
+        self.kill_program().unwrap();
     }
 }
 
@@ -86,7 +89,7 @@ impl MpvProcess for ManagedProcess {
     }
 
     fn kill_program(&self) -> Result<(), Error> {
-        let mut value = self.child.lock().unwrap();
+        let value = self.child.lock().unwrap();
 
         if let Some(value) = &value.id() {
             let pid_string = value.to_string();
