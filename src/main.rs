@@ -1,39 +1,27 @@
-use std::io;
 
-mod shell;
 mod mpv;
 
+use std::{io};
 
-use std::process::exit;
+use mpv::process::ExistingProcess;
 
-use crate::mpv::MpvResponse::UnknownResponse;
-use crate::shell::InitializerSettings;
+use std::thread::sleep;
+use std::time::Duration;
 
-fn main() -> Result<(), io::Error> {
-    println!("Hello, world!");
+use crate::mpv::process::MpvProcess;
 
-    let settings = InitializerSettings::new(); //.set_existing_socket("/tmp/server");
+#[tokio::main]
+async fn main() -> Result<(), io::Error> {
 
-    let mut mpv = shell::initialize(settings)?;
-    let _ = mpv.load_file("https://www.youtube.com/watch?v=lhmKby7c-Jg");
+    println!("Creating client");
+    let client = ExistingProcess::new("/tmp/server");
 
-    // Handles CTRL+C, kills the mpv instance if it was spawned by the initiate method, leaves it
-    // if it was spawned manually
-    let killer = mpv.make_killer();
-    ctrlc::set_handler(move || {
-        match &killer {
-            Some(killer) => killer.send(()).unwrap(),
-            _ => {},
-        }
-        exit(0);
-    }).expect("Error setting Ctrl-C handler");
+    println!("Connecting to socket");
+    let connection = client.create_connection().await;
+    println!("Connected");
 
-    let mut stop = false;
     loop {
-        match mpv.events().recv().unwrap_or(UnknownResponse("UNPARSEABLE EVENT".to_string())) {
-            UnknownResponse(x) if x == "" => stop = true,
-            cmd => println!("{:?}", cmd),
-        }
-
+        sleep(Duration::from_secs(1));
+        println!(".");
     }
 }
