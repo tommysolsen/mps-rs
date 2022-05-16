@@ -15,4 +15,7 @@ pub struct MpvCommandResponse {
 pub enum MpvCommandStatus {
     Success,
     Error,
+
+    #[serde(rename = "invalid parameter")]
+    InvalidParameter
 }

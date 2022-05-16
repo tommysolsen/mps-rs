@@ -1,9 +1,10 @@
-use std::io;
+use std::{io, thread};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::str::from_utf8;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::unix::{OwnedWriteHalf};
 use tokio::sync::{Mutex, oneshot};
@@ -11,13 +12,19 @@ use tokio::sync::oneshot::channel;
 use crate::mpv::commands::MpvCommandResponse;
 use crate::MpvProcess;
 
-pub struct Client {
+pub struct Client<T: MpvProcess> {
+    // Allowing dead code here.
+    // This variable is stored here so that its freed at the same time as the client.
+    // This makes it so that when the client is freed, so is the process, which means the
+    // process drop trait will kill the mpv instance if it is managed by us
+    #[allow(dead_code)]
+    process: T,
     pending_futures: Arc<Mutex<HashMap<u64, oneshot::Sender<MpvCommandResponse>>>>,
     writer: BufWriter<OwnedWriteHalf>
 }
 
-impl Client {
-    pub async fn new<T: MpvProcess>(process: T) -> Result<Self, io::Error> {
+impl<T: MpvProcess> Client<T> {
+    pub async fn new(process: T) -> Result<Self, io::Error> {
         let socket = process.create_connection().await?;
 
         let (reader, writer) = socket.into_split();
@@ -41,9 +48,13 @@ impl Client {
                             response_channel.send(parsed).unwrap();
                         }
                     }
-                    _ => {
+                    Err(e) => {
+                        if e.is_eof() {
+                            thread::sleep(Duration::from_millis(250));
+                            continue;
+                        }
                         let str_msg = from_utf8(buffer.as_slice()).unwrap();
-                        println!("Got event {}", str_msg);
+                        println!("Got event {}, {:?}", str_msg, e);
                     }
                 }
 
@@ -52,6 +63,7 @@ impl Client {
         });
 
         Ok(Self {
+            process,
             writer,
             pending_futures,
         })
@@ -59,6 +71,17 @@ impl Client {
 
     pub async fn load_file(&mut self, path: &str) -> Result<MpvCommandResponse, io::Error> {
         let cmd = format!("[\"loadfile\", \"{}\"]", path);
+        return self._perform_command(cmd.as_str()).await;
+    }
+
+    #[allow(dead_code)]
+    pub async fn pause(&mut self) -> Result<MpvCommandResponse, io::Error> {
+        let cmd = "[\"pause\"]".to_string();
+        return self._perform_command(cmd.as_str()).await;
+    }
+
+    pub async fn unpause(&mut self) -> Result<MpvCommandResponse, io::Error> {
+        let cmd = "[\"unpause\"]".to_string();
         return self._perform_command(cmd.as_str()).await;
     }
 

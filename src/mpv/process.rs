@@ -1,5 +1,7 @@
-use std::io;
+
+use std::{fs};
 use std::io::Error;
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,13 +11,18 @@ use tokio::process::{Child, Command};
 
 
 #[allow(dead_code)]
+#[derive(Debug, Default)]
 pub struct MpvInitializer {
     mpv_args: Option<Vec<String>>
 }
 
 impl MpvInitializer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     #[allow(dead_code)]
-    fn with_args(mut self, args: Vec<String>) -> Self {
+    pub fn with_args(mut self, args: Vec<String>) -> Self {
         self.mpv_args = Some(args);
         self
     }
@@ -23,8 +30,8 @@ impl MpvInitializer {
 
 #[async_trait]
 pub trait MpvProcess {
-    async fn create_connection(&self) -> Result<UnixStream, io::Error>;
-    fn kill_program(&self) -> Result<(), io::Error>;
+    async fn create_connection(&self) -> Result<UnixStream, Error>;
+    fn kill_program(&self) -> Result<(), Error>;
 }
 
 
@@ -33,6 +40,8 @@ pub struct ExistingProcess {
 }
 
 impl ExistingProcess {
+
+    #[allow(dead_code)]
     pub fn new(ipc_path: &str) -> Self {
         Self {
             socket_location: ipc_path.to_string(),
@@ -63,11 +72,16 @@ pub struct ManagedProcess {
 impl Drop for ManagedProcess {
     fn drop(&mut self) {
         self.kill_program().unwrap();
+
+        let file = Path::new(&self.sock_path);
+        if file.exists() {
+            fs::remove_file(file).unwrap();
+        }
     }
 }
 
 impl ManagedProcess {
-    pub fn new(args: MpvInitializer) -> Result<Self, io::Error> {
+    pub fn new(args: MpvInitializer) -> Result<Self, Error> {
         let epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let path = format!("/tmp/mpv-{}", epoch);
 
@@ -84,7 +98,7 @@ impl ManagedProcess {
 
 #[async_trait]
 impl MpvProcess for ManagedProcess {
-    async fn create_connection(&self) -> Result<UnixStream, io::Error> {
+    async fn create_connection(&self) -> Result<UnixStream, Error> {
         return UnixStream::connect(&self.sock_path).await;
     }
 
@@ -100,6 +114,7 @@ impl MpvProcess for ManagedProcess {
     }
 }
 
+#[allow(dead_code)]
 pub fn existing_client(path: &str) -> ExistingProcess {
     ExistingProcess {
         socket_location: path.to_string(),
